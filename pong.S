@@ -68,8 +68,6 @@
 ; Offsets into general game data segment
 %define bat1_y			0x00
 %define bat2_y			0x02
-%define bat1_vel		0x04
-%define bat2_vel		0x06
 %define ball_x			0x08
 %define ball_y			0x0a
 %define ball_vel_x		0x0c
@@ -107,14 +105,12 @@ mov al, 0x13
 int 0x10
 
 ; Init game data
-mov word [gs:bat1_y],		BAT_CENTER_Y
-mov word [gs:bat2_y],		BAT_CENTER_Y
+mov ax,						BAT_CENTER_Y
+mov word [gs:bat1_y],		ax
+mov word [gs:bat2_y],		ax
 mov word [gs:ball_x],		BALL_CENTER_X
 mov word [gs:ball_y],		BALL_CENTER_Y
 mov word [gs:ball_vel_x],	BALL_SPEED
-;mov word [gs:ball_vel_y],	0
-;mov byte [gs:w_pressed],	0
-;mov byte [gs:s_pressed],	0
 
 ; Draw the background
 mov ax, COL_BLUE
@@ -131,9 +127,7 @@ run_loop:
 	in al, 0x64				; Check if there's anything in the buffer
 	test al, 1
 	jz .input_done
-	test al, 0x20			; Check if it's a byte from the mouse
-	jnz .input_done
-	in al, 0x60				; It's keyboard input, so get the key
+	in al, 0x60				; Get the key
 	mov bl, 1				; bl = 1 for press, bl = 0 for release
 	test al, RELEASE_MASK
 	jnz .was_release
@@ -161,14 +155,9 @@ run_loop:
 	mov cx, COL_BLUE
 	call draw_scene
 
-	; Calcuate bat velocities
-	mov word [gs:bat1_vel], 0
-	mov word [gs:bat2_vel], 0
-
 	; W key moves bat up
 	cmp byte [gs:w_pressed], 1
 	jne .w_update_done
-	mov byte [gs:bat1_vel], -1
 	sub word [gs:bat1_y], BAT_SPEED
 .w_update_done:
 	; S key moves bat down
@@ -225,6 +214,21 @@ run_loop:
 	neg ax
 	mov word [gs:ball_vel_y], ax
 .done_ball_y:
+	; Reset the ball position when hitting the left or right
+	mov ax, word [gs:ball_x]
+	cmp ax, 0			; Check left bound
+	jl .reset_ball
+	cmp ax, SCREEN_W	; Check right bound
+	jg .reset_ball
+	jmp .skip_reset
+.reset_ball:
+	mov ax, BALL_CENTER_X
+	mov word [gs:ball_x], ax
+	mov ax, BALL_CENTER_Y
+	mov word [gs:ball_y], ax
+	; TODO negate ball_vel_x here
+	mov word [gs:ball_vel_y], 0
+.skip_reset:
 
 	; Draw the scene
 	mov ax, COL_YELLOW
@@ -299,14 +303,13 @@ draw_scene:
 	pop ax						; Bat 2
 	mov bx, BAT2_X
 	mov cx, word [gs:bat2_y]
-	mov bp, BAT_W
-	mov dx, BAT_H
+	mov dx, BAT_H				; bp is already BAT_W, no need to set it again
 	call fill_rect
 	pop ax						; Ball
 	mov bx, word [gs:ball_x]
 	mov cx, word [gs:ball_y]
 	mov bp, BALL_SIZE
-	mov dx, BALL_SIZE
+	mov dx, bp
 	call fill_rect
 	ret
 
