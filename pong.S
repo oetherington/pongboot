@@ -1,5 +1,5 @@
 ; Standalone bootable pong for x86
-; Copyright (C) 2025 Ollie Etherington
+; Copyright (C) 2025 Ollie Etherington <www.etherington.xyz>
 ;
 ; This program is free software: you can redistribute it and/or modify
 ; it under the terms of the GNU General Public License as published by
@@ -38,10 +38,10 @@
 ; KEY SCAN CODES
 %define SCAN_W			17		; 'w'
 %define SCAN_S			31		; 's'
-%define RELEASE_MASK	0x80	; Release events are masked with 0x80
+%define RELEASE_MASK	0x80	; Release events are masked with this
 
 ; GAME DATA
-%define TARGET_FPS			25
+%define TARGET_FPS			19
 %define PIT_FREQUENCY		1193182
 %define PIT_RELOAD_VALUE	(PIT_FREQUENCY / TARGET_FPS)
 %define SCREEN_W			320
@@ -59,7 +59,7 @@
 %define BALL_SIZE			6
 %define BALL_CENTER_X		((SCREEN_W / 2) - (BALL_SIZE / 2))
 %define BALL_CENTER_Y		((SCREEN_H / 2) - (BALL_SIZE / 2))
-%define BALL_SPEED			1
+%define BALL_SPEED			2
 
 ; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
@@ -77,29 +77,17 @@
 %define w_pressed		0x24
 %define s_pressed		0x28
 
-; Convenience macro to call fill_rect(colour, x, y, w, h)
-%macro FILL_RECT 5
-	mov al, %1
-	mov bx, %2
-	mov cx, %3
-	mov bp, %4
-	mov dx, %5
-	call fill_rect
-%endmacro
-
 ; ENTRY POINT
 section .text
 
 ; Stop interrupts while we do some low level setup
 cli
 
-; Clear segment registers
-xor ax, ax
-;mov ds, ax
+; Setup segment registers
+mov ax, VMEM_SEG
 mov es, ax
-;mov fs, ax
+mov ax, DATA_SEG
 mov gs, ax
-;mov ss, ax
 
 ; Setup the stack
 mov sp, (0x2000 - 0x10)	; Value taken from GRUB_MEMORY_MACHINE_REAL_STACK.
@@ -118,10 +106,6 @@ xor ah, ah
 mov al, 0x13
 int 0x10
 
-; Setup the game data segment in gs
-mov ax, DATA_SEG
-mov gs, ax
-
 ; Init game data
 mov word [gs:bat1_y],		BAT_CENTER_Y
 mov word [gs:bat2_y],		BAT_CENTER_Y
@@ -133,8 +117,6 @@ mov word [gs:ball_vel_x],	BALL_SPEED
 ;mov byte [gs:s_pressed],	0
 
 ; Draw the background
-mov ax, VMEM_SEG
-mov es, ax
 mov ax, COL_BLUE
 xor bx, bx
 xor cx, cx
@@ -212,17 +194,20 @@ run_loop:
 	; Left bat collision
 	mov dx, word [gs:bat1_y]
 	mov si, (BAT1_X + BAT_W - (BALL_SIZE / 2))	; Collide with the right side
-	mov di, BALL_SPEED							; Push back to right if colliding
+	mov di, BALL_SPEED							; Push back right if colliding
 	call check_collision
 	; Right bat collision
 	mov dx, word [gs:bat2_y]
 	mov si, (BAT2_X - (BALL_SIZE / 2))			; Collide with the left side
-	mov di, -BALL_SPEED							; Push back to left if colliding
+	mov di, -BALL_SPEED							; Push back left if colliding
 	call check_collision
 	; Move the ball by its current velocity
 	mov ax, word [gs:ball_x]
 	add ax, word [gs:ball_vel_x]
 	mov word [gs:ball_x], ax
+	mov ax, word [gs:ball_y]
+	add ax, word [gs:ball_vel_y]
+	mov word [gs:ball_y], ax
 
 	; Draw the scene
 	mov ax, COL_YELLOW
@@ -247,8 +232,8 @@ run_loop:
 ; Check ball/bat collision: cx=new ball x, dx=bat y, si=bat x, di=push
 ; amount (positive to push right, negative to push left)
 ; Clobbers: ax, bx
-; Note that this function colides with the exact bat x in si, so the caller
-; should account for the width of the bat and ball when setting this
+; This function collides with the exact bat x in si, so the caller should
+; account for the width of the bat and ball when setting this
 check_collision:
 	; Vertical check
 	mov ax, word [gs:ball_y]
@@ -271,6 +256,15 @@ check_collision:
 	mov ax, si
 	add ax, di
 	mov word [gs:ball_x], ax
+	; Calculate signed hit y-offset in ax
+	mov ax, word [gs:ball_y]
+	add ax, BALL_SIZE / 2
+	mov bx, dx
+	add bx, BAT_H / 2
+	sub ax, bx
+	; Set the y velocity
+	sar ax, 8			; Signed divide to scale down
+	mov word [gs:ball_vel_y], ax
 .no_collision:
 	ret
 
@@ -279,8 +273,6 @@ draw_scene:
 	push cx
 	push bx
 	push ax
-	mov ax, VMEM_SEG
-	mov es, ax
 	pop ax						; Bat 1
 	mov bx, BAT1_X
 	mov cx, word [gs:bat1_y]
@@ -305,10 +297,10 @@ draw_scene:
 ; Clobbers: ax, di
 fill_rect:
 	push ax				; Save the colour for later
-	mov ax, cx          ; ax = y
-	imul ax, SCREEN_W   ; ax = y * SCREEN_W
+	mov ax, cx			; ax = y
+	imul ax, SCREEN_W	; ax = y * SCREEN_W
 	mov di, ax			; di = y * SCREEN_W
-	add di, bx          ; di = y * SCREEN_W + x
+	add di, bx			; di = y * SCREEN_W + x
 	pop ax				; Restore colour
 .row:
 	mov cx, bp			; cx = width (bytes)
