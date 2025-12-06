@@ -85,6 +85,17 @@ mov byte [gs:frame_count], 0
 
 ; Run :-)
 run_loop:
+	; Wait for vsync
+	mov dx, 0x3da
+.wait_retrace_end:
+	in al, dx
+	test al, 8
+	jnz .wait_retrace_end
+.wait_retrace_start:
+	in al, dx
+	test al, 8
+	jz .wait_retrace_start
+
 	; Paint screen
 	mov ax, VMEM_SEG
 	mov es, ax
