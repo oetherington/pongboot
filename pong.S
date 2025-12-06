@@ -59,7 +59,8 @@
 %define BALL_SIZE			6
 %define BALL_CENTER_X		((SCREEN_W / 2) - (BALL_SIZE / 2))
 %define BALL_CENTER_Y		((SCREEN_H / 2) - (BALL_SIZE / 2))
-%define BALL_SPEED			2
+%define BALL_SPEED			1
+%define BG_COL				COL_BLUE
 
 ; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
@@ -78,20 +79,29 @@
 ; ENTRY POINT
 section .text
 
-; Setup segment registers
+; Stop interrupts while we do some low level setup
+cli
+
+; Setup video segment register
 mov ax, VMEM_SEG
 mov es, ax
-mov ax, DATA_SEG
-mov gs, ax
 
-; Setup the stack
-mov sp, (0x2000 - 0x10)	; Value taken from GRUB_MEMORY_MACHINE_REAL_STACK.
-						; Conventional memory begins at 0x500, so this
-						; gives a little under 7KiB of stack.
+; Setup the stack - the value is taken from GRUB_MEMORY_MACHINE_REAL_STACK.
+; Conventional memory begins at 0x500, so this gives almost 7KiB of stack.
+mov sp, (0x2000 - 0x10)
+
+; Reserve some space below the stack for persistent game data. Doing this
+; instead of using a separate segment results in much smaller instructions (at
+; let expense of not being able to use bp for anything else).
+mov bp, sp
+sub bp, 0x100
 
 ; Disable IRQ 1 - we'll handle the keyboard with ports 0x60 and 0x64
 mov al, 2
 out 0x21, al
+
+; Reenable interrupts
+sti
 
 ; Enter graphical mode
 xor ah, ah
@@ -99,18 +109,17 @@ mov al, 0x13
 int 0x10
 
 ; Init game data
-mov ax,						BAT_CENTER_Y
-mov word [gs:bat1_y],		ax
-mov word [gs:bat2_y],		ax
-mov word [gs:ball_x],		BALL_CENTER_X
-mov word [gs:ball_y],		BALL_CENTER_Y
-mov byte [gs:ball_vel_x],	BALL_SPEED
+mov [bp + bat1_y], BAT_CENTER_Y
+mov [bp + bat2_y], BAT_CENTER_Y
+mov word [bp + ball_x], BALL_CENTER_X
+mov word [bp + ball_y], BALL_CENTER_Y
+mov byte [bp + ball_vel_x], BALL_SPEED
 
-; Draw the background
-mov ax, COL_BLUE
-xor bx, bx
-xor cx, cx
-mov bp, SCREEN_W
+; Paint the background
+mov al, BG_COL
+mov bx, 0
+mov cx, 0
+mov si, SCREEN_W
 mov dx, SCREEN_H
 call fill_rect
 
@@ -136,93 +145,105 @@ run_loop:
 	je .store_s
 	jmp .input_loop
 .store_w:
-	mov byte [gs:w_pressed], bl
+	mov byte [bp + w_pressed], bl
 	jmp .input_loop
 .store_s:
-	mov byte [gs:s_pressed], bl
+	mov byte [bp + s_pressed], bl
 	jmp .input_loop
 .input_done:
 
 	; Clear the scene
-	mov ax, COL_BLUE
-	mov bx, COL_BLUE
-	mov cx, COL_BLUE
+	mov ax, BG_COL
+	mov bx, ax
+	mov cx, ax
 	call draw_scene
 
 	; W key moves bat up
-	cmp byte [gs:w_pressed], 1
+	cmp byte [bp + w_pressed], 1
 	jne .w_update_done
-	sub word [gs:bat1_y], BAT_SPEED
+	sub word [bp + bat1_y], BAT_SPEED
 .w_update_done:
 	; S key moves bat down
-	cmp byte [gs:s_pressed], 1
+	cmp byte [bp + s_pressed], 1
 	jne .s_update_done
-	add word [gs:bat1_y], BAT_SPEED
+	add word [bp + bat1_y], BAT_SPEED
 .s_update_done:
 
 	; Clamp bats to screen bounds
-	mov ax, word [gs:bat1_y]
+	mov ax, word [bp + bat1_y]
 	cmp ax, BAT_MIN_Y
 	jge .not_negative
-	mov word [gs:bat1_y], BAT_MIN_Y
+	mov word [bp + bat1_y], BAT_MIN_Y
 	jmp .clamp_done
 .not_negative:
 	cmp ax, BAT_MAX_Y
 	jle .clamp_done
-	mov word [gs:bat1_y], BAT_MAX_Y
+	mov word [bp + bat1_y], BAT_MAX_Y
 .clamp_done:
 
 	; Calculate ball velocity
-	mov cx, word [gs:ball_x]					; cx = proposed new ball x
+	mov cx, word [bp + ball_x]					; cx = proposed new ball x
 	; Left bat collision
-	mov dx, word [gs:bat1_y]
+	mov dx, word [bp + bat1_y]
 	mov si, (BAT1_X + BAT_W - (BALL_SIZE / 2))	; Collide with the right side
 	mov di, BALL_SPEED							; Push back right if colliding
 	call check_collision
 	; Right bat collision
-	mov dx, word [gs:bat2_y]
+	mov dx, word [bp + bat2_y]
 	mov si, (BAT2_X - (BALL_SIZE / 2))			; Collide with the left side
 	mov di, -BALL_SPEED							; Push back left if colliding
 	call check_collision
 	; Move the ball by its current velocity
-	mov ax, word [gs:ball_x]
-	add ax, word [gs:ball_vel_x]
-	mov word [gs:ball_x], ax
-	mov ax, word [gs:ball_y]
-	add ax, word [gs:ball_vel_y]
-	mov word [gs:ball_y], ax
+	mov ax, word [bp + ball_x]
+	add ax, word [bp + ball_vel_x]
+	mov word [bp + ball_x], ax
+	mov ax, word [bp + ball_y]
+	mov bx, ax		; Save for later
+	add ax, word [bp + ball_vel_y]
+	mov word [bp + ball_y], ax
 	; Bounce the ball off the top and bottom of the screen
-	mov ax, word [gs:ball_y]
-	cmp ax, 0
+	cmp bx, 0
 	jge .check_bottom				; Hit top: reverse Y velocity and clamp
-	mov word [gs:ball_y], 0
+	mov word [bp + ball_y], 0
 	jmp .reverse_ball_y_vel
 .check_bottom:
-	mov bx, SCREEN_H
-	sub bx, BALL_SIZE
-	cmp ax, bx
+	mov ax, SCREEN_H
+	sub ax, BALL_SIZE
+	cmp bx, ax
 	jle .done_ball_y				; Hit bottom: reverse Y velocity and clamp
-	mov word [gs:ball_y], bx
+	mov word [bp + ball_y], ax
 .reverse_ball_y_vel:
-	mov ax, word [gs:ball_vel_y]
+	mov ax, word [bp + ball_vel_y]
 	neg ax
-	mov word [gs:ball_vel_y], ax
+	mov word [bp + ball_vel_y], ax
 .done_ball_y:
 	; Reset the ball position when hitting the left or right
-	mov ax, word [gs:ball_x]
+	mov ax, word [bp + ball_x]
 	cmp ax, 0			; Check left bound
 	jl .reset_ball
 	cmp ax, SCREEN_W	; Check right bound
 	jg .reset_ball
 	jmp .skip_reset
 .reset_ball:
-	mov ax, BALL_CENTER_X
-	mov word [gs:ball_x], ax
-	mov ax, BALL_CENTER_Y
-	mov word [gs:ball_y], ax
-	neg word [gs:ball_vel_x]
-	mov word [gs:ball_vel_y], 0
+	mov word [bp + ball_x], BALL_CENTER_X
+	mov word [bp + ball_y], BALL_CENTER_Y
+	neg word [bp + ball_vel_x]
+	mov word [bp + ball_vel_y], 0
 .skip_reset:
+
+	; "AI" to move the other bat
+	mov ax, [bp + ball_y]		; ax = target y
+	mov bx, [bp + bat2_y]		; bx = current bat y
+	cmp ax, bx
+	jz .ai_done					; Already aligned
+	jb .ai_move_up				; Ball is above paddle - move up
+	inc bx						; Move paddle down by 1
+	mov [bp + bat2_y], bx
+	jmp .ai_done
+.ai_move_up:
+	dec bx
+	mov [bp + bat2_y], bx
+.ai_done:
 
 	; Draw the scene
 	mov ax, COL_YELLOW
@@ -251,7 +272,7 @@ run_loop:
 ; account for the width of the bat and ball when setting this
 check_collision:
 	; Vertical check
-	mov ax, word [gs:ball_y]
+	mov ax, word [bp + ball_y]
 	add ax, BALL_SIZE
 	cmp ax, dx
 	jb .no_collision	; Is the top of the ball above the top of the bat?
@@ -267,19 +288,19 @@ check_collision:
 	cmp cx, bx
 	jg .no_collision	; Is the ball completely to the right of the bat
 	; Collision! Reverse x velocity and push ball out of bat
-	neg word [gs:ball_vel_x]
+	neg word [bp + ball_vel_x]
 	mov ax, si
 	add ax, di
-	mov word [gs:ball_x], ax
+	mov word [bp + ball_x], ax
 	; Calculate signed hit y-offset in ax
-	mov ax, word [gs:ball_y]
+	mov ax, word [bp + ball_y]
 	add ax, BALL_SIZE / 2
 	mov bx, dx
 	add bx, BAT_H / 2
 	sub ax, bx
 	; Set the y velocity
 	sar ax, 1			; Signed divide to scale down
-	mov word [gs:ball_vel_y], ax
+	mov word [bp + ball_vel_y], ax
 .no_collision:
 	ret
 
@@ -290,25 +311,25 @@ draw_scene:
 	push ax
 	pop ax						; Bat 1
 	mov bx, BAT1_X
-	mov cx, word [gs:bat1_y]
-	mov bp, BAT_W
+	mov cx, word [bp + bat1_y]
+	mov si, BAT_W
 	mov dx, BAT_H
 	call fill_rect
 	pop ax						; Bat 2
 	mov bx, BAT2_X
-	mov cx, word [gs:bat2_y]
-	mov dx, BAT_H				; bp is already BAT_W, no need to set it again
+	mov cx, word [bp + bat2_y]
+	mov dx, BAT_H				; si is already BAT_W, no need to set it again
 	call fill_rect
 	pop ax						; Ball
-	mov bx, word [gs:ball_x]
-	mov cx, word [gs:ball_y]
-	mov bp, BALL_SIZE
-	mov dx, bp
+	mov bx, word [bp + ball_x]
+	mov cx, word [bp + ball_y]
+	mov si, BALL_SIZE
+	mov dx, si
 	call fill_rect
 	ret
 
-; Draw a rectangle: al=colour, bx=x, cx=y, bp=width, dx=height, es=segment
-; Clobbers: ax, di
+; Draw a rectangle: al=colour, bx=x, cx=y, si=width, dx=height, es=video segment
+; Clobbers: ax, di, cx, dx
 fill_rect:
 	push ax				; Save the colour for later
 	mov ax, cx			; ax = y
@@ -317,11 +338,11 @@ fill_rect:
 	add di, bx			; di = y * SCREEN_W + x
 	pop ax				; Restore colour
 .row:
-	mov cx, bp			; cx = width (bytes)
-	rep stosb			; write AL colour for width bytes
-	add di, SCREEN_W	; next row
-	sub di, bp			; correct for width advance
-	dec dx				; height--
+	mov cx, si			; cx = width
+	rep stosb			; Write AL colour for width bytes
+	add di, SCREEN_W	; Next row
+	sub di, si			; Backtrack width
+	dec dx				; Height--
 	jnz .row
 	ret
 
