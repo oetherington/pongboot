@@ -208,6 +208,23 @@ run_loop:
 	mov ax, word [gs:ball_y]
 	add ax, word [gs:ball_vel_y]
 	mov word [gs:ball_y], ax
+	; Bounce the ball off the top and bottom of the screen
+	mov ax, word [gs:ball_y]
+	cmp ax, 0
+	jge .check_bottom				; Hit top: reverse Y velocity and clamp
+	mov word [gs:ball_y], 0
+	jmp .reverse_ball_y_vel
+.check_bottom:
+	mov bx, SCREEN_H
+	sub bx, BALL_SIZE
+	cmp ax, bx
+	jle .done_ball_y				; Hit bottom: reverse Y velocity and clamp
+	mov word [gs:ball_y], bx
+.reverse_ball_y_vel:
+	mov ax, word [gs:ball_vel_y]
+	neg ax
+	mov word [gs:ball_vel_y], ax
+.done_ball_y:
 
 	; Draw the scene
 	mov ax, COL_YELLOW
@@ -263,7 +280,7 @@ check_collision:
 	add bx, BAT_H / 2
 	sub ax, bx
 	; Set the y velocity
-	sar ax, 8			; Signed divide to scale down
+	sar ax, 1			; Signed divide to scale down
 	mov word [gs:ball_vel_y], ax
 .no_collision:
 	ret
