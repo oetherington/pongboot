@@ -17,6 +17,30 @@
 [bits 16]			; 16 bit code :-(
 [org 0x7c00]		; BIOS loads the bootloader at physical address 0x7c00
 
+; COLOR CODES
+%define COL_BLACK		0x0
+%define COL_BLUE		0x1
+%define COL_GREEN		0x2
+%define COL_CYAN		0x3
+%define COL_RED			0x4
+%define COL_MAGENTA		0x5
+%define COL_BROWN		0x6
+%define COL_L_GRAY		0x7
+%define COL_GRAY		0x8
+%define COL_L_BLUE		0x9
+%define COL_L_GREEN		0xa
+%define COL_L_CYAN		0xb
+%define COL_L_RED		0xc
+%define COL_L_MAGENTA	0xd
+%define COL_YELLOW		0xe
+%define COL_WHITE		0xf
+
+; GAME DATA
+%define SCREEN_W		320
+%define SCREEN_H		200
+%define VMEM_SIZE		(SCREEN_W * SCREEN_H)
+%define VMEM_SEG		0xa000
+
 ; ENTRY POINT
 section .text
 
@@ -48,6 +72,14 @@ sti
 xor ah, ah
 mov al, 0x13
 int 0x10
+
+; Paint screen
+mov ax, VMEM_SEG
+mov es, ax
+xor di, di
+mov cx, VMEM_SIZE
+mov al, COL_MAGENTA
+rep stosb		; Repeat: store AL at ES:DI, increment DI, decrement CX
 
 ; Loop
 jmp $
