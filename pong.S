@@ -17,7 +17,7 @@
 [bits 16]			; 16 bit code :-(
 [org 0x7c00]		; BIOS loads the bootloader at physical address 0x7c00
 
-; COLOR CODES
+; COLOUR CODES
 %define COL_BLACK		0x0
 %define COL_BLUE		0x1
 %define COL_GREEN		0x2
@@ -43,6 +43,16 @@
 ; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
 %define DATA_SEG		0x0050
+
+; Convenience macro to call fill_rect(colour, x, y, w, h)
+%macro FILL_RECT 5
+	mov al, %1
+	mov bx, %2
+	mov cx, %3
+	mov bp, %4
+	mov dx, %5
+	call fill_rect
+%endmacro
 
 ; ENTRY POINT
 section .text
@@ -104,9 +114,31 @@ run_loop:
 	mov al, [gs:frame_count]
 	rep stosb		; Repeat: store AL at ES:DI, increment DI, decrement CX
 
+	push bp
+	FILL_RECT COL_MAGENTA, 50, 50, 50, 50
+	pop bp
+
 	; Next frame!
 	inc byte [gs:frame_count]
 	jmp run_loop
+
+; Draw a rectangle: al=colour, bx=x, cx=y, bp=width, dx=height, es=segment
+; Clobbers: ax, di
+fill_rect:
+	push ax				; Save the colour for later
+	mov ax, cx          ; ax = y
+	imul ax, SCREEN_W   ; ax = y * SCREEN_W
+	mov di, ax			; di = y * SCREEN_W
+	add di, bx          ; di = y * SCREEN_W + x
+	pop ax				; Restore colour
+.row:
+	mov cx, bp			; cx = width (bytes)
+	rep stosb			; write AL colour for width bytes
+	add di, SCREEN_W	; next row
+	sub di, bp			; correct for width advance
+	dec dx				; height--
+	jnz .row
+	ret
 
 ; Fill file to 512 bytes with zeros and the final boot signature
 times 510 - ($ - $$) db 0
