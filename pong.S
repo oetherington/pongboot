@@ -95,11 +95,11 @@ cli
 
 ; Clear segment registers
 xor ax, ax
-mov ds, ax
+;mov ds, ax
 mov es, ax
-mov fs, ax
+;mov fs, ax
 mov gs, ax
-mov ss, ax
+;mov ss, ax
 
 ; Setup the stack
 mov sp, (0x2000 - 0x10)	; Value taken from GRUB_MEMORY_MACHINE_REAL_STACK.
@@ -127,17 +127,20 @@ mov word [gs:bat1_y],		BAT_CENTER_Y
 mov word [gs:bat2_y],		BAT_CENTER_Y
 mov word [gs:ball_x],		BALL_CENTER_X
 mov word [gs:ball_y],		BALL_CENTER_Y
-mov word [gs:ball_vel_x],	0
-mov word [gs:ball_vel_y],	0
-mov byte [gs:w_pressed],	0
-mov byte [gs:s_pressed],	0
+mov word [gs:ball_vel_x],	BALL_SPEED
+;mov word [gs:ball_vel_y],	0
+;mov byte [gs:w_pressed],	0
+;mov byte [gs:s_pressed],	0
 
 ; Draw the background
 mov ax, VMEM_SEG
 mov es, ax
-push bp
-FILL_RECT COL_BLUE, 0, 0, SCREEN_W, SCREEN_H
-pop bp
+mov ax, COL_BLUE
+xor bx, bx
+xor cx, cx
+mov bp, SCREEN_W
+mov dx, SCREEN_H
+call fill_rect
 
 ; Run :-)
 run_loop:
@@ -171,11 +174,10 @@ run_loop:
 .input_done:
 
 	; Clear the scene
-	mov ax, VMEM_SEG
-	mov es, ax
-	FILL_RECT COL_BLUE, BAT1_X, word [gs:bat1_y], BAT_W, BAT_H
-	FILL_RECT COL_BLUE, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
-	FILL_RECT COL_BLUE, word [gs:ball_x], word [gs:ball_y], BALL_SIZE, BALL_SIZE
+	mov ax, COL_BLUE
+	mov bx, COL_BLUE
+	mov cx, COL_BLUE
+	call draw_scene
 
 	; Calcuate bat velocities
 	mov word [gs:bat1_vel], 0
@@ -206,26 +208,98 @@ run_loop:
 .clamp_done:
 
 	; Calculate ball velocity
-	mov word [gs:ball_vel_x], BALL_SPEED ; TODO
-
-	; Move the ball
+	mov cx, word [gs:ball_x]					; cx = proposed new ball x
+	; Left bat collision
+	mov dx, word [gs:bat1_y]
+	mov si, (BAT1_X + BAT_W - (BALL_SIZE / 2))	; Collide with the right side
+	mov di, BALL_SPEED							; Push back to right if colliding
+	call check_collision
+	; Right bat collision
+	mov dx, word [gs:bat2_y]
+	mov si, (BAT2_X - (BALL_SIZE / 2))			; Collide with the left side
+	mov di, -BALL_SPEED							; Push back to left if colliding
+	call check_collision
+	; Move the ball by its current velocity
 	mov ax, word [gs:ball_x]
 	add ax, word [gs:ball_vel_x]
 	mov word [gs:ball_x], ax
-	mov ax, word [gs:ball_y]
-	add ax, word [gs:ball_vel_y]
-	mov word [gs:ball_y], ax
 
 	; Draw the scene
-	mov ax, VMEM_SEG
-	mov es, ax
-	FILL_RECT COL_YELLOW, BAT1_X, word [gs:bat1_y], BAT_W, BAT_H
-	FILL_RECT COL_L_GREEN, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
-	FILL_RECT COL_L_RED, word [gs:ball_x], word [gs:ball_y], BALL_SIZE, BALL_SIZE
+	mov ax, COL_YELLOW
+	mov bx, COL_L_GREEN
+	mov cx, COL_L_RED
+	call draw_scene
+
+	; Sleep until we're ready for the next frame
+	mov al, 0x34				; Set up PIT: channel 0, mode 2, LSB/MSB, binary
+	out 0x43, al
+	mov ax, PIT_RELOAD_VALUE	; Load reload value
+	out 0x40, al				; send LSB
+	mov al, ah
+	out 0x40, al				; send MSB
+.wait_loop:
+	in al, 0x40					; Read back PIT counter
+	loop .wait_loop
 
 	; Next frame!
-	call sleep
 	jmp run_loop
+
+; Check ball/bat collision: cx=new ball x, dx=bat y, si=bat x, di=push
+; amount (positive to push right, negative to push left)
+; Clobbers: ax, bx
+; Note that this function colides with the exact bat x in si, so the caller
+; should account for the width of the bat and ball when setting this
+check_collision:
+	; Vertical check
+	mov ax, word [gs:ball_y]
+	add ax, BALL_SIZE
+	cmp ax, dx
+	jb .no_collision	; Is the top of the ball above the top of the bat?
+	sub ax, BALL_SIZE
+	mov bx, dx
+	add bx, BAT_H
+	cmp ax, bx
+	ja .no_collision	; Is the top of the ball below the bottom of the bat
+	; Horizontal check
+	cmp cx, si
+	jl .no_collision	; Is the ball completely to the left of the bat
+	mov bx, si
+	cmp cx, bx
+	jg .no_collision	; Is the ball completely to the right of the bat
+	; Collision! Reverse x velocity and push ball out of bat
+	neg word [gs:ball_vel_x]
+	mov ax, si
+	add ax, di
+	mov word [gs:ball_x], ax
+.no_collision:
+	ret
+
+; Draw the scene: ax=ball1 colour, bx=ball2 colour, cx=bat colour
+draw_scene:
+	push cx
+	push bx
+	push ax
+	mov ax, VMEM_SEG
+	mov es, ax
+	pop ax						; Bat 1
+	mov bx, BAT1_X
+	mov cx, word [gs:bat1_y]
+	mov bp, BAT_W
+	mov dx, BAT_H
+	call fill_rect
+	pop ax						; Bat 2
+	mov bx, BAT2_X
+	mov cx, word [gs:bat2_y]
+	mov bp, BAT_W
+	mov dx, BAT_H
+	call fill_rect
+	pop ax						; Ball
+	mov bx, word [gs:ball_x]
+	mov cx, word [gs:ball_y]
+	mov bp, BALL_SIZE
+	mov dx, BALL_SIZE
+	call fill_rect
+	ret
 
 ; Draw a rectangle: al=colour, bx=x, cx=y, bp=width, dx=height, es=segment
 ; Clobbers: ax, di
@@ -243,20 +317,6 @@ fill_rect:
 	sub di, bp			; correct for width advance
 	dec dx				; height--
 	jnz .row
-	ret
-
-; Sleep until the next frame
-; Clobbers: ax, dx, bx, cx
-sleep:
-	mov al, 0x34				; Set up PIT: channel 0, mode 2, LSB/MSB, binary
-	out 0x43, al
-	mov ax, PIT_RELOAD_VALUE	; Load reload value
-	out 0x40, al				; send LSB
-	mov al, ah
-	out 0x40, al				; send MSB
-.wait_loop:
-	in al, 0x40      ; Read back PIT counter
-	loop .wait_loop
 	ret
 
 ; Fill file to 512 bytes with zeros and the final boot signature
