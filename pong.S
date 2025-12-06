@@ -78,9 +78,6 @@
 ; ENTRY POINT
 section .text
 
-; Stop interrupts while we do some low level setup
-cli
-
 ; Setup segment registers
 mov ax, VMEM_SEG
 mov es, ax
@@ -96,9 +93,6 @@ mov sp, (0x2000 - 0x10)	; Value taken from GRUB_MEMORY_MACHINE_REAL_STACK.
 mov al, 2
 out 0x21, al
 
-; Reenable interrupts
-sti
-
 ; Enter graphical mode
 xor ah, ah
 mov al, 0x13
@@ -110,7 +104,7 @@ mov word [gs:bat1_y],		ax
 mov word [gs:bat2_y],		ax
 mov word [gs:ball_x],		BALL_CENTER_X
 mov word [gs:ball_y],		BALL_CENTER_Y
-mov word [gs:ball_vel_x],	BALL_SPEED
+mov byte [gs:ball_vel_x],	BALL_SPEED
 
 ; Draw the background
 mov ax, COL_BLUE
@@ -226,7 +220,7 @@ run_loop:
 	mov word [gs:ball_x], ax
 	mov ax, BALL_CENTER_Y
 	mov word [gs:ball_y], ax
-	; TODO negate ball_vel_x here
+	neg word [gs:ball_vel_x]
 	mov word [gs:ball_vel_y], 0
 .skip_reset:
 
