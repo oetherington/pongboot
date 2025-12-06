@@ -1,4 +1,6 @@
-all:
+all: build
+
+build:
 	nasm pong.S -f bin -o pong.bin
 	@size=$$(stat --printf="%s" pong.bin 2>/dev/null || stat -f%z pong.bin); \
 		test "$$size" -eq 512
