@@ -20,6 +20,36 @@
 ; ENTRY POINT
 section .text
 
+; Stop interrupts while we do some low level setup
+cli
+
+; Clear segment registers
+xor ax, ax
+mov ds, ax
+mov es, ax
+mov fs, ax
+mov gs, ax
+mov ss, ax
+
+; Setup the stack
+mov sp, (0x2000 - 0x10)	; Value taken from GRUB_MEMORY_MACHINE_REAL_STACK.
+						; Conventional memory begins at 0x500, so this
+						; gives a little under 7KiB of stack.
+mov bp, sp
+
+; Disable IRQ 1 - we'll handle the keyboard with ports 0x60 and 0x64
+mov al, 2
+out 0x21, al
+
+; Reenable interrupts
+sti
+
+; Enter graphical mode
+xor ah, ah
+mov al, 0x13
+int 0x10
+
+; Loop
 jmp $
 
 ; Fill file to 512 bytes with zeros and the final boot signature
