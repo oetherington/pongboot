@@ -35,16 +35,27 @@
 %define COL_YELLOW		0xe
 %define COL_WHITE		0xf
 
+; KEY SCAN CODES
+%define SCAN_W			17		; 'w'
+%define SCAN_S			31		; 's'
+%define RELEASE_MASK	0x80	; Release events are masked with 0x80
+
 ; GAME DATA
-%define SCREEN_W		320
-%define SCREEN_H		200
-%define VMEM_SIZE		(SCREEN_W * SCREEN_H)
-%define BAT_W			6
-%define BAT_H			26
-%define BAT_MARGIN		20
-%define BAT1_X			BAT_MARGIN
-%define BAT2_X			(SCREEN_W - BAT_MARGIN - BAT_W)
-%define BAT_CENTER_Y	((SCREEN_H / 2) - (BAT_H / 2))
+%define TARGET_FPS			25
+%define PIT_FREQUENCY		1193182
+%define PIT_RELOAD_VALUE	(PIT_FREQUENCY / TARGET_FPS)
+%define SCREEN_W			320
+%define SCREEN_H			200
+%define VMEM_SIZE			(SCREEN_W * SCREEN_H)
+%define BAT_W				6
+%define BAT_H				26
+%define BAT_MARGIN			20
+%define BAT1_X				BAT_MARGIN
+%define BAT2_X				(SCREEN_W - BAT_MARGIN - BAT_W)
+%define BAT_CENTER_Y		((SCREEN_H / 2) - (BAT_H / 2))
+%define BAT_MIN_Y			0
+%define BAT_MAX_Y			(SCREEN_H - BAT_H - 1)
+%define BAT_SPEED			1
 
 ; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
@@ -53,6 +64,10 @@
 ; Offsets into general game data segment
 %define bat1_y			0x00
 %define bat2_y			0x02
+%define bat1_vel		0x04
+%define bat2_vel		0x06
+%define w_pressed		0x24
+%define s_pressed		0x28
 
 ; Convenience macro to call fill_rect(colour, x, y, w, h)
 %macro FILL_RECT 5
@@ -82,7 +97,6 @@ mov ss, ax
 mov sp, (0x2000 - 0x10)	; Value taken from GRUB_MEMORY_MACHINE_REAL_STACK.
 						; Conventional memory begins at 0x500, so this
 						; gives a little under 7KiB of stack.
-mov bp, sp
 
 ; Disable IRQ 1 - we'll handle the keyboard with ports 0x60 and 0x64
 mov al, 2
@@ -100,38 +114,92 @@ int 0x10
 mov ax, DATA_SEG
 mov gs, ax
 
-; TODO TMP
-%define frame_count 0x22
-mov byte [gs:frame_count], 0
-
 ; Init game data
 mov word [gs:bat1_y],		BAT_CENTER_Y
 mov word [gs:bat2_y],		BAT_CENTER_Y
+mov byte [gs:w_pressed],	0
+mov byte [gs:s_pressed],	0
+
+; Draw the background
+mov ax, VMEM_SEG
+mov es, ax
+push bp
+FILL_RECT COL_BLUE, 0, 0, SCREEN_W, SCREEN_H
+pop bp
 
 ; Run :-)
 run_loop:
-	; Wait for vsync
-	mov dx, 0x3da
-.wait_retrace_end:
-	in al, dx
-	test al, 8
-	jnz .wait_retrace_end
-.wait_retrace_start:
-	in al, dx
-	test al, 8
-	jz .wait_retrace_start
+	; Handle keyboard input
+.input_loop:
+	in al, 0x64				; Check if there's anything in the buffer
+	test al, 1
+	jz .input_done
+	test al, 0x20			; Check if it's a byte from the mouse
+	jnz .input_done
+	in al, 0x60				; It's keyboard input, so get the key
+	mov bl, 1				; bl = 1 for press, bl = 0 for release
+	test al, RELEASE_MASK
+	jnz .was_release
+	jmp .handle_key
+.was_release:
+	mov bl, 0
+.handle_key:
+	and al, byte (~RELEASE_MASK)	; Strip release bit to get base scancode
+	cmp al, SCAN_W
+	je .store_w
+	cmp al, SCAN_S
+	je .store_s
+	jmp .input_loop
+.store_w:
+	mov byte [gs:w_pressed], bl
+	jmp .input_loop
+.store_s:
+	mov byte [gs:s_pressed], bl
+	jmp .input_loop
+.input_done:
+
+	; Clear the scene
+	mov ax, VMEM_SEG
+	mov es, ax
+	FILL_RECT COL_BLUE, BAT1_X, word [gs:bat1_y], BAT_W, BAT_H
+	FILL_RECT COL_BLUE, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
+
+	; Calcuate bat velocities
+	mov word [gs:bat1_vel], 0
+	mov word [gs:bat2_vel], 0
+
+	; W key moves bat up
+	cmp byte [gs:w_pressed], 1
+	jne .w_update_done
+	mov byte [gs:bat1_vel], -1
+	sub word [gs:bat1_y], BAT_SPEED
+.w_update_done:
+	; S key moves bat down
+	cmp byte [gs:s_pressed], 1
+	jne .s_update_done
+	add word [gs:bat1_y], BAT_SPEED
+.s_update_done:
+
+	; Clamp bats to screen bounds
+	mov ax, word [gs:bat1_y]
+	cmp ax, BAT_MIN_Y
+	jge .not_negative
+	mov word [gs:bat1_y], BAT_MIN_Y
+	jmp .clamp_done
+.not_negative:
+	cmp ax, BAT_MAX_Y
+	jle .clamp_done
+	mov word [gs:bat1_y], BAT_MAX_Y
+.clamp_done:
 
 	; Draw the scene
 	mov ax, VMEM_SEG
 	mov es, ax
-	push bp
-	FILL_RECT [gs:frame_count], 0, 0, SCREEN_W, SCREEN_H
 	FILL_RECT COL_YELLOW, BAT1_X, word [gs:bat1_y], BAT_W, BAT_H
-	FILL_RECT COL_BLUE, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
-	pop bp
+	FILL_RECT COL_L_GREEN, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
 
 	; Next frame!
-	inc byte [gs:frame_count]
+	call sleep
 	jmp run_loop
 
 ; Draw a rectangle: al=colour, bx=x, cx=y, bp=width, dx=height, es=segment
@@ -150,6 +218,20 @@ fill_rect:
 	sub di, bp			; correct for width advance
 	dec dx				; height--
 	jnz .row
+	ret
+
+; Sleep until the next frame
+; Clobbers: ax, dx, bx, cx
+sleep:
+	mov al, 0x34				; Set up PIT: channel 0, mode 2, LSB/MSB, binary
+	out 0x43, al
+	mov ax, PIT_RELOAD_VALUE	; Load reload value
+	out 0x40, al				; send LSB
+	mov al, ah
+	out 0x40, al				; send MSB
+.wait_loop:
+	in al, 0x40      ; Read back PIT counter
+	loop .wait_loop
 	ret
 
 ; Fill file to 512 bytes with zeros and the final boot signature
