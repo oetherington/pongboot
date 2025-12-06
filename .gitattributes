@@ -1,0 +1,5 @@
+* text eol=lf
+*.S text eol=lf
+*.o binary
+*.bin binary
+*.flp binary
