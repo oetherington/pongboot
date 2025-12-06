@@ -39,7 +39,10 @@
 %define SCREEN_W		320
 %define SCREEN_H		200
 %define VMEM_SIZE		(SCREEN_W * SCREEN_H)
+
+; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
+%define DATA_SEG		0x0050
 
 ; ENTRY POINT
 section .text
@@ -73,16 +76,26 @@ xor ah, ah
 mov al, 0x13
 int 0x10
 
-; Paint screen
-mov ax, VMEM_SEG
-mov es, ax
-xor di, di
-mov cx, VMEM_SIZE
-mov al, COL_MAGENTA
-rep stosb		; Repeat: store AL at ES:DI, increment DI, decrement CX
+; Setup the game data segment in gs
+mov ax, DATA_SEG
+mov gs, ax
 
-; Loop
-jmp $
+%define frame_count 0x22
+mov byte [gs:frame_count], 0
+
+; Run :-)
+run_loop:
+	; Paint screen
+	mov ax, VMEM_SEG
+	mov es, ax
+	xor di, di
+	mov cx, VMEM_SIZE
+	mov al, [gs:frame_count]
+	rep stosb		; Repeat: store AL at ES:DI, increment DI, decrement CX
+
+	; Next frame!
+	inc byte [gs:frame_count]
+	jmp run_loop
 
 ; Fill file to 512 bytes with zeros and the final boot signature
 times 510 - ($ - $$) db 0
