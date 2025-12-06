@@ -39,10 +39,20 @@
 %define SCREEN_W		320
 %define SCREEN_H		200
 %define VMEM_SIZE		(SCREEN_W * SCREEN_H)
+%define BAT_W			6
+%define BAT_H			26
+%define BAT_MARGIN		20
+%define BAT1_X			BAT_MARGIN
+%define BAT2_X			(SCREEN_W - BAT_MARGIN - BAT_W)
+%define BAT_CENTER_Y	((SCREEN_H / 2) - (BAT_H / 2))
 
 ; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
 %define DATA_SEG		0x0050
+
+; Offsets into general game data segment
+%define bat1_y			0x00
+%define bat2_y			0x02
 
 ; Convenience macro to call fill_rect(colour, x, y, w, h)
 %macro FILL_RECT 5
@@ -90,8 +100,13 @@ int 0x10
 mov ax, DATA_SEG
 mov gs, ax
 
+; TODO TMP
 %define frame_count 0x22
 mov byte [gs:frame_count], 0
+
+; Init game data
+mov word [gs:bat1_y],		BAT_CENTER_Y
+mov word [gs:bat2_y],		BAT_CENTER_Y
 
 ; Run :-)
 run_loop:
@@ -106,16 +121,13 @@ run_loop:
 	test al, 8
 	jz .wait_retrace_start
 
-	; Paint screen
+	; Draw the scene
 	mov ax, VMEM_SEG
 	mov es, ax
-	xor di, di
-	mov cx, VMEM_SIZE
-	mov al, [gs:frame_count]
-	rep stosb		; Repeat: store AL at ES:DI, increment DI, decrement CX
-
 	push bp
-	FILL_RECT COL_MAGENTA, 50, 50, 50, 50
+	FILL_RECT [gs:frame_count], 0, 0, SCREEN_W, SCREEN_H
+	FILL_RECT COL_YELLOW, BAT1_X, word [gs:bat1_y], BAT_W, BAT_H
+	FILL_RECT COL_BLUE, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
 	pop bp
 
 	; Next frame!
