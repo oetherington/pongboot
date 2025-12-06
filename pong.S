@@ -56,6 +56,10 @@
 %define BAT_MIN_Y			0
 %define BAT_MAX_Y			(SCREEN_H - BAT_H - 1)
 %define BAT_SPEED			1
+%define BALL_SIZE			6
+%define BALL_CENTER_X		((SCREEN_W / 2) - (BALL_SIZE / 2))
+%define BALL_CENTER_Y		((SCREEN_H / 2) - (BALL_SIZE / 2))
+%define BALL_SPEED			1
 
 ; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
@@ -66,6 +70,10 @@
 %define bat2_y			0x02
 %define bat1_vel		0x04
 %define bat2_vel		0x06
+%define ball_x			0x08
+%define ball_y			0x0a
+%define ball_vel_x		0x0c
+%define ball_vel_y		0x0e
 %define w_pressed		0x24
 %define s_pressed		0x28
 
@@ -117,6 +125,10 @@ mov gs, ax
 ; Init game data
 mov word [gs:bat1_y],		BAT_CENTER_Y
 mov word [gs:bat2_y],		BAT_CENTER_Y
+mov word [gs:ball_x],		BALL_CENTER_X
+mov word [gs:ball_y],		BALL_CENTER_Y
+mov word [gs:ball_vel_x],	0
+mov word [gs:ball_vel_y],	0
 mov byte [gs:w_pressed],	0
 mov byte [gs:s_pressed],	0
 
@@ -163,6 +175,7 @@ run_loop:
 	mov es, ax
 	FILL_RECT COL_BLUE, BAT1_X, word [gs:bat1_y], BAT_W, BAT_H
 	FILL_RECT COL_BLUE, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
+	FILL_RECT COL_BLUE, word [gs:ball_x], word [gs:ball_y], BALL_SIZE, BALL_SIZE
 
 	; Calcuate bat velocities
 	mov word [gs:bat1_vel], 0
@@ -192,11 +205,23 @@ run_loop:
 	mov word [gs:bat1_y], BAT_MAX_Y
 .clamp_done:
 
+	; Calculate ball velocity
+	mov word [gs:ball_vel_x], BALL_SPEED ; TODO
+
+	; Move the ball
+	mov ax, word [gs:ball_x]
+	add ax, word [gs:ball_vel_x]
+	mov word [gs:ball_x], ax
+	mov ax, word [gs:ball_y]
+	add ax, word [gs:ball_vel_y]
+	mov word [gs:ball_y], ax
+
 	; Draw the scene
 	mov ax, VMEM_SEG
 	mov es, ax
 	FILL_RECT COL_YELLOW, BAT1_X, word [gs:bat1_y], BAT_W, BAT_H
 	FILL_RECT COL_L_GREEN, BAT2_X, word [gs:bat2_y], BAT_W, BAT_H
+	FILL_RECT COL_L_RED, word [gs:ball_x], word [gs:ball_y], BALL_SIZE, BALL_SIZE
 
 	; Next frame!
 	call sleep
