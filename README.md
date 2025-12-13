@@ -1,6 +1,9 @@
 # Pongboot
 
-Standalone pong clone built into a 512 byte X86 bootloader.
+Standalone pong clone squeezed into a 512 byte x86 bootloader. Use W and S to
+move up and down.
+
+![Demo](demo.gif)
 
 ## Building
 
@@ -13,3 +16,4 @@ file with `make run`.
 ## License
 
 Free software under the GNU GPLv3. See the included `COPYING` file for details.
+Copyright [Ollie Etherington](https://www.etherington.xyz).
