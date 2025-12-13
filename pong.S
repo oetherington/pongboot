@@ -1,5 +1,5 @@
 ; Standalone bootable pong for x86
-; Copyright (C) 2025 Ollie Etherington <www.etherington.xyz>
+; Copyright (C) Ollie Etherington <www.etherington.xyz>
 ;
 ; This program is free software: you can redistribute it and/or modify
 ; it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@
 %define RELEASE_MASK	0x80	; Release events are masked with this
 
 ; GAME CONSTANTS
-%define TARGET_FPS			19
+%define TARGET_FPS			25
 %define PIT_FREQUENCY		1193182
 %define PIT_RELOAD_VALUE	(PIT_FREQUENCY / TARGET_FPS)
 %define SCREEN_W			320
@@ -56,16 +56,16 @@
 %define BAT_CENTER_Y		((SCREEN_H / 2) - (BAT_H / 2))
 %define BAT_MIN_Y			0
 %define BAT_MAX_Y			(SCREEN_H - BAT_H - 1)
-%define BAT_SPEED			1
+%define BAT_SPEED			2
 %define BALL_SIZE			6
 %define BALL_CENTER_X		((SCREEN_W / 2) - (BALL_SIZE / 2))
 %define BALL_CENTER_Y		((SCREEN_H / 2) - (BALL_SIZE / 2))
 %define BALL_SPEED			2
-%define BALL_UPDATE_FRAMES	3	; Update ball position every N frames
+%define BALL_UPDATE_FRAMES	2	; Update ball position every N frames
 
 ; MEMORY SEGMENTS
-%define VMEM_SEG		0xa000
-%define DATA_SEG		0x0050
+%define VMEM_SEG			0xa000
+%define DATA_SEG			0x0050
 
 ; GAME VARIABLES (Offsets into general game data section below the stack)
 %define bat1_y				0x00
