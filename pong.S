@@ -60,7 +60,7 @@
 %define BALL_SIZE			6
 %define BALL_CENTER_X		((SCREEN_W / 2) - (BALL_SIZE / 2))
 %define BALL_CENTER_Y		((SCREEN_H / 2) - (BALL_SIZE / 2))
-%define BALL_SPEED			1
+%define BALL_SPEED			2
 %define BALL_UPDATE_FRAMES	3	; Update ball position every N frames
 
 ; MEMORY SEGMENTS
@@ -115,7 +115,7 @@ mov [bp + bat1_y], BAT_CENTER_Y
 mov [bp + bat2_y], BAT_CENTER_Y
 mov word [bp + ball_x], BALL_CENTER_X
 mov word [bp + ball_y], BALL_CENTER_Y
-mov byte [bp + ball_vel_x], BALL_SPEED
+mov word [bp + ball_vel_x], -BALL_SPEED
 
 ; Paint the background
 mov al, BG_COL
@@ -172,19 +172,13 @@ run_loop:
 .s_update_done:
 
 	; Clamp bats to screen bounds
-	mov ax, word [bp + bat1_y]
-	cmp ax, BAT_MIN_Y
-	jge .not_negative
-	mov word [bp + bat1_y], BAT_MIN_Y
-	jmp .clamp_done
-.not_negative:
-	cmp ax, BAT_MAX_Y
-	jle .clamp_done
-	mov word [bp + bat1_y], BAT_MAX_Y
-.clamp_done:
+	mov si, bat1_y
+	call clamp_bat
+	mov si, bat2_y
+	call clamp_bat
 
 	; Only update ball every N frames, otherwise it moves too fast
-	inc [bp + ball_update_frame]
+	inc byte [bp + ball_update_frame]
 	cmp byte [bp + ball_update_frame], BALL_UPDATE_FRAMES
 	jb .skip_reset
 	mov byte [bp + ball_update_frame], 0
@@ -240,17 +234,17 @@ run_loop:
 .skip_reset:
 
 	; "AI" to move the other bat
-	mov ax, [bp + ball_y]		; ax = target y
+	mov ax, [bp + ball_y]		; ax = current ball y
+	add ax, BALL_SIZE / 2		; ax = ball center y
 	mov bx, [bp + bat2_y]		; bx = current bat y
+	add bx, BAT_H / 2			; bx = bat center y
 	cmp ax, bx
 	jz .ai_done					; Already aligned
 	jb .ai_move_up				; Ball is above paddle - move up
-	inc bx						; Move paddle down by 1
-	mov [bp + bat2_y], bx
+	inc word [bp + bat2_y]
 	jmp .ai_done
 .ai_move_up:
-	dec bx
-	mov [bp + bat2_y], bx
+	dec word [bp + bat2_y]
 .ai_done:
 
 	; Draw the scene
@@ -272,6 +266,21 @@ run_loop:
 
 	; Next frame!
 	jmp run_loop
+
+; Clamp bat to screen bounds: si=memory offset to bat y position
+; Clobbers: ax
+clamp_bat:
+	mov ax, word [bp + si]
+	cmp ax, BAT_MIN_Y
+	jge .not_negative
+	mov word [bp + si], BAT_MIN_Y
+	ret
+.not_negative:
+	cmp ax, BAT_MAX_Y
+	jle .done
+	mov word [bp + si], BAT_MAX_Y
+.done:
+	ret
 
 ; Check ball/bat collision: cx=new ball x, dx=bat y, si=bat x, di=push
 ; amount (positive to push right, negative to push left)
@@ -307,7 +316,7 @@ check_collision:
 	add bx, BAT_H / 2
 	sub ax, bx
 	; Set the y velocity
-	sar ax, 1			; Signed divide to scale down
+	sar ax, 2			; Signed divide to scale down
 	mov word [bp + ball_vel_y], ax
 .no_collision:
 	ret
