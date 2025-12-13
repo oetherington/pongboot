@@ -40,13 +40,14 @@
 %define SCAN_S			31		; 's'
 %define RELEASE_MASK	0x80	; Release events are masked with this
 
-; GAME DATA
+; GAME CONSTANTS
 %define TARGET_FPS			19
 %define PIT_FREQUENCY		1193182
 %define PIT_RELOAD_VALUE	(PIT_FREQUENCY / TARGET_FPS)
 %define SCREEN_W			320
 %define SCREEN_H			200
 %define VMEM_SIZE			(SCREEN_W * SCREEN_H)
+%define BG_COL				COL_BLUE
 %define BAT_W				6
 %define BAT_H				26
 %define BAT_MARGIN			20
@@ -60,21 +61,22 @@
 %define BALL_CENTER_X		((SCREEN_W / 2) - (BALL_SIZE / 2))
 %define BALL_CENTER_Y		((SCREEN_H / 2) - (BALL_SIZE / 2))
 %define BALL_SPEED			1
-%define BG_COL				COL_BLUE
+%define BALL_UPDATE_FRAMES	3	; Update ball position every N frames
 
 ; MEMORY SEGMENTS
 %define VMEM_SEG		0xa000
 %define DATA_SEG		0x0050
 
-; Offsets into general game data segment
-%define bat1_y			0x00
-%define bat2_y			0x02
-%define ball_x			0x08
-%define ball_y			0x0a
-%define ball_vel_x		0x0c
-%define ball_vel_y		0x0e
-%define w_pressed		0x24
-%define s_pressed		0x28
+; GAME VARIABLES (Offsets into general game data section below the stack)
+%define bat1_y				0x00
+%define bat2_y				0x02
+%define ball_x				0x08
+%define ball_y				0x0a
+%define ball_vel_x			0x0c
+%define ball_vel_y			0x0e
+%define ball_update_frame	0x24
+%define w_pressed			0x26
+%define s_pressed			0x28
 
 ; ENTRY POINT
 section .text
@@ -92,7 +94,7 @@ mov sp, (0x2000 - 0x10)
 
 ; Reserve some space below the stack for persistent game data. Doing this
 ; instead of using a separate segment results in much smaller instructions (at
-; let expense of not being able to use bp for anything else).
+; the expense of not being able to use bp for anything else).
 mov bp, sp
 sub bp, 0x100
 
@@ -108,7 +110,7 @@ xor ah, ah
 mov al, 0x13
 int 0x10
 
-; Init game data
+; Init game state
 mov [bp + bat1_y], BAT_CENTER_Y
 mov [bp + bat2_y], BAT_CENTER_Y
 mov word [bp + ball_x], BALL_CENTER_X
@@ -181,6 +183,12 @@ run_loop:
 	mov word [bp + bat1_y], BAT_MAX_Y
 .clamp_done:
 
+	; Only update ball every N frames, otherwise it moves too fast
+	inc [bp + ball_update_frame]
+	cmp byte [bp + ball_update_frame], BALL_UPDATE_FRAMES
+	jb .skip_reset
+	mov byte [bp + ball_update_frame], 0
+
 	; Calculate ball velocity
 	mov cx, word [bp + ball_x]					; cx = proposed new ball x
 	; Left bat collision
@@ -198,7 +206,7 @@ run_loop:
 	add ax, word [bp + ball_vel_x]
 	mov word [bp + ball_x], ax
 	mov ax, word [bp + ball_y]
-	mov bx, ax		; Save for later
+	mov bx, ax		; Save ball y for later
 	add ax, word [bp + ball_vel_y]
 	mov word [bp + ball_y], ax
 	; Bounce the ball off the top and bottom of the screen
